@@ -237,6 +237,69 @@ def criar_excel_multiplas_turmas(resultados_turmas):
     output2.seek(0)
     return output2
 
+def montar_consolidado(resultados_turmas):
+    """
+    Monta um DataFrame consolidado com disciplinas nas linhas e turmas nas colunas,
+    mostrando a quantidade de alunos com notas baixas (<6) por disciplina em cada turma.
+    """
+    # DataFrame vazio para armazenar o consolidado
+    df_consolidado = pd.DataFrame()
+
+    # Para cada turma processada
+    for resultado in resultados_turmas:
+        codigo_turma = resultado['codigo_turma']
+        resumo_disciplina = resultado['resumo_disciplina']
+
+        # Se a turma foi processada com sucesso
+        if resumo_disciplina is not None:
+            # Cria uma série com disciplinas como índice e quantidade de alunos com nota baixa como valores
+            serie_turma = resumo_disciplina.set_index('Disciplina')['Alunos com nota < 6']
+
+            # Adiciona a série como uma nova coluna no DataFrame consolidado
+            df_consolidado[codigo_turma] = serie_turma
+
+    # Preenche valores ausentes com 0 (disciplinas que não existem em algumas turmas)
+    df_consolidado = df_consolidado.fillna(0)
+
+    # Converte para inteiros (remove decimais desnecessários)
+    df_consolidado = df_consolidado.astype(int)
+
+    # Ordena as disciplinas alfabeticamente
+    df_consolidado = df_consolidado.sort_index()
+
+    # Adiciona uma coluna "Total" com a soma de todas as turmas
+    df_consolidado['TOTAL'] = df_consolidado.sum(axis=1)
+
+    return df_consolidado
+
+def gerar_excel_consolidado(df_consolidado):
+    """Gera um arquivo Excel apenas com o relatório consolidado"""
+    output = BytesIO()
+
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_consolidado.to_excel(writer, sheet_name='Consolidado', index=True)
+
+    output.seek(0)
+
+    # Ajusta largura das colunas
+    wb = load_workbook(output)
+    ws = wb['Consolidado']
+
+    # Adiciona título
+    ws.insert_rows(1)
+    ws['A1'] = 'RELATÓRIO CONSOLIDADO - ALUNOS COM NOTAS BAIXAS POR DISCIPLINA'
+    ws['A1'].font = Font(bold=True, size=14)
+    ws['A1'].alignment = Alignment(horizontal='center')
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ws.max_column)
+
+    # Ajusta largura das colunas
+    ajustar_largura_colunas(ws)
+
+    output2 = BytesIO()
+    wb.save(output2)
+    output2.seek(0)
+    return output2
+
 def main():
     st.set_page_config(
         page_title="Relatórios EJF",
@@ -331,5 +394,15 @@ def main():
 
             st.info(f"💡 O arquivo Excel conterá abas separadas para cada turma: {', '.join(codigos_turmas)}")
 
+        if st.button("📊 Gerar Relatório Consolidado"):
+            df_consolidado = montar_consolidado(resultados_turmas)
+            st.dataframe(df_consolidado)
+
+            excel_cons = gerar_excel_consolidado(df_consolidado)  # função curta que grava 1 aba
+            st.download_button("📥 Baixar Consolidado", data=excel_cons, file_name="consolidado.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            
+            st.info(f"💡 Este relatório junta em uma tabela as quantidades de alunos com notas baixas de todas as turmas processadas: {', '.join(codigos_turmas)}")
+            
 if __name__ == "__main__":
     main()
